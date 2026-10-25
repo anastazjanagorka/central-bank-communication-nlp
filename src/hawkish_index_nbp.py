@@ -1,5 +1,7 @@
 import pandas as pd
+import numpy as np
 import re
+import matplotlib.pyplot as plt
 
 # Load cleaned NBP communications
 df = pd.read_csv("data/nbp_communications.csv")
@@ -444,10 +446,16 @@ dovish_words = [
 
 ]
 
+
+# 1. SPRAWDZENIE REGEXÓW
+
 for pattern in hawkish_words + dovish_words:
     re.compile(pattern)
 
 print("All regex patterns compiled successfully!")
+
+
+# 2. FUNKCJA ZLICZAJĄCA DOPASOWANIA
 
 def count_matches(text, patterns):
     spans = []
@@ -458,21 +466,123 @@ def count_matches(text, patterns):
 
     spans.sort()
 
-    count = 0
-    last_end = -1
+    if not spans:
+        return 0
 
-    for start, end in spans:
+    count = 1
+    last_end = spans[0][1]
+
+    for start, end in spans[1:]:
         if start >= last_end:
             count += 1
             last_end = end
+        else:
+            last_end = max(last_end, end)
 
     return count
 
 
+# 3. LICZBA SYGNAŁÓW HAWKISH I DOVISH
+
 df["hawkish_count"] = df["clean_text"].fillna("").apply(
-    lambda text: count_matches(text, hawkish_words))
+    lambda text: count_matches(text, hawkish_words)
+)
 
 df["dovish_count"] = df["clean_text"].fillna("").apply(
-    lambda text: count_matches(text, dovish_words))
+    lambda text: count_matches(text, dovish_words)
+)
 
-print(df[["date", "hawkish_count", "dovish_count"]].to_string(index=False))
+
+# 4. LICZBA SŁÓW W KOMUNIKATACH
+
+df["word_count"] = (
+    df["clean_text"]
+    .fillna("")
+    .str.split()
+    .str.len()
+)
+
+
+# 5. INDEKS JASTRZĘBIOŚCI - RATIO
+
+df["hawkish_index"] = (
+    (df["hawkish_count"] - df["dovish_count"])
+    / (df["hawkish_count"] + df["dovish_count"]).replace(0, np.nan)
+)
+
+
+# 6. INDEKS JASTRZĘBIOŚCI - DENSITY
+
+df["hawkish_density"] = (
+    1000
+    * (df["hawkish_count"] - df["dovish_count"])
+    / df["word_count"].replace(0, np.nan)
+)
+
+
+# 7. SORTOWANIE I WYŚWIETLENIE WYNIKÓW
+
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values("date")
+
+print(
+    df[
+        [
+            "date",
+            "word_count",
+            "hawkish_count",
+            "dovish_count",
+            "hawkish_index",
+            "hawkish_density"
+        ]
+    ].tail(20).to_string(index=False)
+)
+
+
+# 8. WYKRES - HAWKISH INDEX (RATIO)
+
+plt.figure(figsize=(14, 6))
+
+plt.plot(
+    df["date"],
+    df["hawkish_index"],
+    linewidth=1.5,
+    label="Hawkishness Index - Ratio"
+)
+
+plt.axhline(0, color="gray", linestyle="--", linewidth=1)
+
+plt.title("NBP Hawkishness Index - Ratio (2005-2026)")
+plt.xlabel("Date")
+plt.ylabel("Hawkishness Index")
+
+plt.ylim(-1.05, 1.05)
+plt.legend()
+plt.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+# 9. WYKRES - HAWKISH INDEX (DENSITY)
+
+plt.figure(figsize=(14, 6))
+
+plt.plot(
+    df["date"],
+    df["hawkish_density"],
+    linewidth=1.5,
+    label="Hawkishness Index - Density"
+)
+
+plt.axhline(0, color="gray", linestyle="--", linewidth=1)
+
+plt.title("NBP Hawkishness Index - Density (2005-2026)")
+plt.xlabel("Date")
+plt.ylabel("Net Hawkish Signals per 1000 Words")
+
+plt.legend()
+plt.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
